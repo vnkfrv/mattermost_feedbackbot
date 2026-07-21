@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+# логи Python не буферизуются -> видны в docker logs сразу
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
 # Хост закрыт от pypi.org -> ставим из внутреннего зеркала.
@@ -15,4 +18,8 @@ RUN pip install --no-cache-dir \
     -r requirements.txt
 
 COPY . .
+
+# порт HTTP-сервера кнопок/модалок (BUTTON_PORT внутри контейнера)
+EXPOSE 8080
+
 CMD ["python", "bot.py"]

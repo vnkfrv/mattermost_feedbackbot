@@ -124,10 +124,12 @@ async def handle_message(raw):
 
 
 async def main():
+    log.info("Старт бота, подключаюсь к Mattermost (%s)…", os.getenv("URL"))
     ssl_patch.sslapply()
 
     try:
         await run_in_thread(driver.login)
+        log.info("Подключение к Mattermost успешно")
     except Exception as e:
         log.critical("Не удалось подключиться к Mattermost: %s", e)
         sys.exit(1)

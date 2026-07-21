@@ -312,7 +312,8 @@ async def start_server():
     app.router.add_post("/button", _handle_button)
     app.router.add_post("/dialog", _handle_dialog)
 
-    runner = web.AppRunner(app)
+    # access_log=None: не писать per-request лог aiohttp (он светил ?secret= в логах)
+    runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", BUTTON_PORT)
     await site.start()
