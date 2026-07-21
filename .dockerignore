@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.tar
+*.tar.gz
+.claude/
+.DS_Store
+.git/
+.env
+.env.example

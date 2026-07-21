@@ -4,6 +4,7 @@ import hmac
 import time
 import asyncio
 import logging
+from datetime import datetime, timezone, timedelta
 
 import urllib3
 from dotenv import load_dotenv
@@ -73,6 +74,19 @@ async def run_in_thread(func, *args, **kwargs):
     return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
 
 
+_MONTHS_RU = [
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+]
+_MSK = timezone(timedelta(hours=3))
+
+
+def now_str():
+    """Текущее московское время в формате «ДД месяц в ЧЧ:ММ»."""
+    n = datetime.now(_MSK)
+    return f"{n.day} {_MONTHS_RU[n.month - 1]} в {n:%H:%M}"
+
+
 
 def _cb_url(path):
     """URL callback'а с секретом (если задан)."""
@@ -94,6 +108,9 @@ def _check_secret(request):
 def _rate_limited(user_id):
     """True, если пользователь отправлял идею слишком недавно."""
     now = time.monotonic()
+    # чистим протухшие записи (старше окна) — иначе словарь растёт бесконечно
+    for uid in [u for u, t in _last_submit.items() if now - t >= _RATE_LIMIT_SECONDS]:
+        del _last_submit[uid]
     if now - _last_submit.get(user_id, 0.0) < _RATE_LIMIT_SECONDS:
         return True
     _last_submit[user_id] = now
@@ -161,6 +178,7 @@ async def _open_dialog(trigger_id, dialog):
         log.error("open_dialog: пустой trigger_id — Mattermost не прислал его")
         return
     try:
+        log.info("open_dialog: открываю модалку (trigger_id=%s)", trigger_id)
         await run_in_thread(
             driver.integration_actions.open_dialog,
             {
@@ -169,26 +187,31 @@ async def _open_dialog(trigger_id, dialog):
                 "dialog": dialog,
             },
         )
+        log.info("open_dialog: модалка успешно открыта")
     except Exception as e:
         log.exception("open_dialog не удался (trigger_id=%s): %s", trigger_id, e)
 
 
 async def _handle_button(request):
-
+    log.info("/button: запрос от %s", request.remote)
     if not _check_secret(request):
-        log.warning("Отклонён /button с неверным секретом от %s", request.remote)
+        log.warning("/button: отклонён — неверный секрет от %s", request.remote)
         return web.json_response({}, status=403)
     try:
         try:
             data = await request.json()
         except Exception:
+            log.warning("/button: тело запроса не JSON")
             data = {}
 
-        if (data.get("context") or {}).get("action") != "idea_open":
+        action = (data.get("context") or {}).get("action")
+        if action != "idea_open":
+            log.info("/button: пропускаю action=%r", action)
             return web.json_response({})
 
         post_id = data.get("post_id")  # пост, на котором нажали кнопку
-        log.info("Открываю модалку, post_id=%s", post_id)
+        user_id = data.get("user_id")
+        log.info("/button: клик idea_open user_id=%s post_id=%s", user_id, post_id)
         await _open_dialog(data.get("trigger_id"), _idea_dialog(post_id))
     except Exception as e:
         log.exception("Ошибка обработки /button: %s", e)
@@ -196,17 +219,22 @@ async def _handle_button(request):
 
 
 async def _handle_dialog(request):
-
+    log.info("/dialog: запрос от %s", request.remote)
     if not _check_secret(request):
-        log.warning("Отклонён /dialog с неверным секретом от %s", request.remote)
+        log.warning("/dialog: отклонён — неверный секрет от %s", request.remote)
         return web.json_response({}, status=403)
     try:
         try:
             data = await request.json()
         except Exception:
+            log.warning("/dialog: тело запроса не JSON")
             data = {}
 
-        if data.get("cancelled") or data.get("callback_id") != "idea":
+        if data.get("cancelled"):
+            log.info("/dialog: пользователь отменил форму")
+            return web.json_response({})
+        if data.get("callback_id") != "idea":
+            log.info("/dialog: чужой callback_id=%r", data.get("callback_id"))
             return web.json_response({})
 
         submission = data.get("submission") or {}
@@ -218,13 +246,16 @@ async def _handle_dialog(request):
         third = (submission.get("third") or "").strip()
 
         if not first:
+            log.info("/dialog: пустое обязательное поле, возвращаю ошибку user_id=%s", user_id)
             return web.json_response({"errors": {"first": "Опишите, что не нравится"}})
 
         if _rate_limited(user_id):
+            log.info("/dialog: антифлуд для user_id=%s", user_id)
             return web.json_response(
                 {"errors": {"first": "Вы недавно отправляли идею — подождите немного."}}
             )
 
+        log.info("/dialog: форма принята user_id=%s, отправка в фоне", user_id)
         task = asyncio.create_task(_finish(first, second, third, post_id))
         _bg_tasks.add(task)
         task.add_done_callback(_bg_tasks.discard)
@@ -236,9 +267,11 @@ async def _handle_dialog(request):
 async def _finish(first, second, third, post_id):
     try:
         body = _build_body(first, second, third)
+        log.info("_finish: отправляю письмо по идее (post_id=%s)", post_id)
         ok = await run_in_thread(send_email, "Новая идея от сотрудника", body)
+        log.info("_finish: письмо отправлено=%s, обновляю пост", ok)
         final_text = (
-            "Спасибо! Идея отправлена, специалист изучит Ваше предложение."
+            f"Спасибо! Идея отправлена ({now_str()}), специалист изучит Ваше предложение."
             if ok
             else "Идея записана, но письмо не ушло — сообщите администратору."
         )

@@ -1,0 +1,11 @@
+services:
+  feedback-bot:
+    image: feedback-bot:latest
+    container_name: feedback-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    # левая часть — порт хоста (не 8080: занят mattermost-proxy; не 8085: ДР-бот),
+    # правая — BUTTON_PORT внутри контейнера
+    ports:
+      - "8086:8080"

@@ -70,6 +70,10 @@ def send_email(subject: str, body: str) -> bool:
     msg["To"] = cfg["recipient"]
 
     try:
+        log.info(
+            "SMTP: подключаюсь к %s:%s (режим %s)",
+            cfg["server"], cfg["port"], cfg["security"],
+        )
         if cfg["security"] == "ssl":
             server = smtplib.SMTP_SSL(
                 cfg["server"], cfg["port"], timeout=10, context=_tls_context()
@@ -78,19 +82,28 @@ def send_email(subject: str, body: str) -> bool:
             server = smtplib.SMTP(cfg["server"], cfg["port"], timeout=10)
 
         with server:
+            log.info("SMTP: соединение установлено")
             if cfg["security"] == "starttls":
                 server.starttls(context=_tls_context())
+                log.info("SMTP: STARTTLS выполнен")
             if cfg["password"]:
                 server.login(cfg["login"], cfg["password"])
+                log.info("SMTP: авторизация под %s успешна", cfg["login"])
+            else:
+                log.info("SMTP: без авторизации (пароль не задан)")
             server.send_message(msg)
-        log.info("Письмо успешно отправлено на %s", cfg["recipient"])
+        log.info(
+            "SMTP: письмо успешно отправлено (%s -> %s)",
+            cfg["sender"], cfg["recipient"],
+        )
         return True
     except Exception as e:
         log.error(
-            "Не удалось отправить письмо (%s:%s, режим %s): %s",
+            "SMTP: не удалось отправить письмо (%s:%s, режим %s, отправитель %s): %s",
             cfg["server"],
             cfg["port"],
             cfg["security"],
+            cfg["sender"],
             e,
         )
         return False

@@ -15,6 +15,7 @@ from idea_dialog import (
     greeting_attachment,
     start_server,
     _build_body,
+    now_str,
 )
 from send_email import send_email
 
@@ -27,8 +28,8 @@ FEEDBACK_QUESTIONS = [
     "Как это можно исправить?",
     "Какие плюсы это даст?",
 ]
-FEEDBACK_THANKS = (
-    "Спасибо! Идея отправлена, специалист изучит Ваше предложение. Если хотите отправить еще одно предложение, просто напишите `feedback`"
+FEEDBACK_TAIL = (
+    " Если хотите отправить еще одно предложение, просто напишите `feedback`"
 )
 FEEDBACK_FAIL = "Идея записана, но письмо не ушло — сообщите администратору."
 
@@ -72,12 +73,16 @@ async def _handle_feedback_dialog(user_id, channel_id, text):
         await _post(channel_id, FEEDBACK_QUESTIONS[state["step"]])
         return True
 
-    #письмо +итог сообщение 
+    # письмо +итог сообщение
     _dialogs.pop(key, None)
     ok = await run_in_thread(
         send_email, "Новая идея от сотрудника", _build_body(*state["answers"])
     )
-    await _post(channel_id, FEEDBACK_THANKS if ok else FEEDBACK_FAIL)
+    thanks = (
+        f"Спасибо! Идея отправлена ({now_str()}), специалист изучит Ваше "
+        f"предложение.{FEEDBACK_TAIL}"
+    )
+    await _post(channel_id, thanks if ok else FEEDBACK_FAIL)
     return True
 
 
@@ -97,6 +102,11 @@ async def handle_message(raw):
         if sender in (BOT_USERNAME, f"@{BOT_USERNAME}"):
             return
 
+        if message.lower() == "check":
+            log.info("check от user_id=%s channel_id=%s", user_id, channel_id)
+            await _post(channel_id, "Бот отвечает")
+            return
+
         if await _handle_feedback_dialog(user_id, channel_id, message):
             return
 
@@ -114,7 +124,7 @@ async def handle_message(raw):
 
 
 async def main():
-    ssl_patch.sslapply() 
+    ssl_patch.sslapply()
 
     try:
         await run_in_thread(driver.login)
@@ -137,7 +147,7 @@ async def main():
         try:
             loop.add_signal_handler(sig, stop_event.set)
         except NotImplementedError:
-            pass  
+            pass
 
     ws_task = asyncio.create_task(driver.websocket.connect(handle_message))
     stop_task = asyncio.create_task(stop_event.wait())
