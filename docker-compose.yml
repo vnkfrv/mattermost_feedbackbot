@@ -1,7 +1,7 @@
 services:
   feedback-bot:
-    image: feedback-bot:latest
-    container_name: feedback-bot
+    image: feedback-bot-nikiforov:latest
+    container_name: feedback-bot-nikiforov
     restart: unless-stopped
     env_file:
       - .env
