@@ -20,6 +20,6 @@ RUN pip install --no-cache-dir \
 COPY . .
 
 # порт HTTP-сервера кнопок/модалок (BUTTON_PORT внутри контейнера)
-EXPOSE 8080
+EXPOSE 8081
 
 CMD ["python", "bot.py"]
